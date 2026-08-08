@@ -6,7 +6,7 @@ function jsonSchema(name: string, schema: object) {
   return {
     type: 'json_schema',
     name,
-    strict: true,
+    strict: false,
     schema,
   }
 }
@@ -54,7 +54,8 @@ async function callOpenAI<T>(payload: {
   })
 
   if (!response.ok) {
-    throw new Error(`OpenAI request failed: ${response.status}`)
+    const body = await response.text()
+    throw new Error(`OpenAI request failed: ${response.status}${body ? ` - ${body.slice(0, 500)}` : ''}`)
   }
 
   const json = (await response.json()) as {
@@ -70,7 +71,7 @@ async function callOpenAI<T>(payload: {
 
 export class OpenAIService implements AIService {
   async analyzeImages(input: CarouselGenerationInput): Promise<AnalysisResult[]> {
-    const prompt = `Analyze ${input.photos.length} hike photos for a Lifestyle Hikers Instagram carousel. Use only what is visible in the image plus the supplied hike notes. If something is uncertain, say so. Hike notes: ${input.notes}`
+    const prompt = `Analyze ${input.photos.length} hike photo${input.photos.length === 1 ? '' : 's'} for a Lifestyle Hikers Instagram carousel. Use only what is visible in the image plus the supplied hike notes. If something is uncertain, say so. Hike notes: ${input.notes}`
     const result = await callOpenAI<AnalysisResult[]>({
       prompt,
       schemaName: 'carousel_image_analysis',
@@ -87,7 +88,7 @@ export class OpenAIService implements AIService {
   }
 
   async generateCarousel(input: CarouselGenerationInput, analyses?: AnalysisResult[]): Promise<SlideResult[]> {
-    const prompt = `Create a ${input.photos.length}-slide editorial hiking carousel for Lifestyle Hikers. Use concise, intelligent, emotionally restrained writing. Avoid clichés and exaggeration. Hike notes: ${input.notes}. Analyses: ${JSON.stringify(analyses ?? [])}`
+    const prompt = `Create a ${input.photos.length}-slide editorial hiking carousel for Lifestyle Hikers. Use concise, intelligent, emotionally restrained writing. Avoid clichés and exaggeration. Preserve the imageId values from the supplied photo metadata. Hike notes: ${input.notes}. Photo metadata: ${JSON.stringify(input.photos.map(({ id, originalName, width, height }) => ({ id, originalName, width, height })))}. Analyses: ${JSON.stringify(analyses ?? [])}`
     const result = await callOpenAI<SlideResult[]>({
       prompt,
       schemaName: 'carousel_slides',
@@ -98,7 +99,6 @@ export class OpenAIService implements AIService {
           additionalProperties: true,
         },
       },
-      images: input.photos,
     })
     return result.map((entry) => slideResultSchema.parse(entry))
   }

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { PhotoUploader } from '@/components/photo-uploader'
-import { fileToDataUrl, imageDimensions, makeThumbnail } from '@/lib/image-utils'
+import { fileToDataUrl, imageDimensions, makeProjectImage, makeThumbnail } from '@/lib/image-utils'
 import { makeId } from '@/lib/project-utils'
 import { projectInputSchema, validateFile, validatePhotoCount } from '@/lib/validation'
 import type { PhotoAsset, Project } from '@/types'
@@ -37,18 +37,20 @@ export function NewProjectDialog({
       return null
     }
 
-    const dataUrl = await fileToDataUrl(file)
-    const dimensions = await imageDimensions(dataUrl)
-    const thumbnailDataUrl = await makeThumbnail(dataUrl)
+    const sourceDataUrl = await fileToDataUrl(file)
+    const dimensions = await imageDimensions(sourceDataUrl)
+    const projectDataUrl = await makeProjectImage(sourceDataUrl)
+    const thumbnailDataUrl = await makeThumbnail(projectDataUrl)
+
     return {
       id: makeId('photo'),
       originalName: file.name,
-      url: dataUrl,
-      dataUrl,
+      url: thumbnailDataUrl,
+      dataUrl: projectDataUrl,
       thumbnailDataUrl,
       width: dimensions.width,
       height: dimensions.height,
-      mimeType: file.type,
+      mimeType: 'image/jpeg',
     }
   }
 
