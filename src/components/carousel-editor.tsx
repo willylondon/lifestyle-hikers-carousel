@@ -149,6 +149,18 @@ export function CarouselEditor({
     onChange({ ...project, slides: nextSlides, updatedAt: new Date().toISOString() })
   }
 
+  async function handleGenerate() {
+    setBusy(true)
+    setError('')
+    try {
+      await onGenerate()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Carousel generation failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleExport() {
     setBusy(true)
     setError('')
@@ -168,9 +180,10 @@ export function CarouselEditor({
         <CardContent className="space-y-4 p-8">
           <h2 className="text-2xl font-semibold">This project is ready for generation.</h2>
           <p className="text-stone-400">Generate the carousel once your photos and notes are in place.</p>
+          {error ? <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">{error}</div> : null}
           <div className="flex gap-3">
-            <Button variant="ghost" onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4" />Back</Button>
-            <Button onClick={onGenerate}><Sparkles className="mr-2 h-4 w-4" />Generate carousel</Button>
+            <Button variant="ghost" onClick={onBack} disabled={busy}><ArrowLeft className="mr-2 h-4 w-4" />Back</Button>
+            <Button onClick={handleGenerate} disabled={busy}><Sparkles className="mr-2 h-4 w-4" />{busy ? 'Generating…' : 'Generate carousel'}</Button>
           </div>
         </CardContent>
       </Card>
@@ -188,7 +201,7 @@ export function CarouselEditor({
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline" className="border-white/15 text-stone-300">{project.status}</Badge>
           <Badge className="bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/10">{aiMode} mode</Badge>
-          <Button variant="secondary" onClick={onGenerate}><Sparkles className="mr-2 h-4 w-4" />Regenerate carousel</Button>
+          <Button variant="secondary" onClick={handleGenerate} disabled={busy}><Sparkles className="mr-2 h-4 w-4" />{busy ? 'Generating…' : 'Regenerate carousel'}</Button>
           <Button onClick={handleExport} disabled={busy}><Download className="mr-2 h-4 w-4" />Export package</Button>
         </div>
       </div>

@@ -129,6 +129,19 @@ export function CarouselCreatorApp() {
   }
 
   async function generateCarousel(project: Project) {
+    const photosForGeneration =
+      aiMode === 'Mock'
+        ? project.photos.map((photo) => ({
+            id: photo.id,
+            originalName: photo.originalName,
+            url: photo.originalName,
+            width: photo.width,
+            height: photo.height,
+            mimeType: photo.mimeType,
+            analysis: photo.analysis,
+          }))
+        : project.photos
+
     const response = await fetch('/api/ai/generate-carousel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -136,7 +149,7 @@ export function CarouselCreatorApp() {
         title: project.title,
         location: project.location,
         notes: project.notes,
-        photos: project.photos,
+        photos: photosForGeneration,
       }),
     })
 
