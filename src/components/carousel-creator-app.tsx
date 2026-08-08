@@ -47,13 +47,25 @@ export function CarouselCreatorApp() {
     let cancelled = false
 
     async function bootstrap() {
-      const saved = await localProjectRepository.listProjects()
+      const [saved, modeResponse] = await Promise.all([
+        localProjectRepository.listProjects(),
+        fetch('/api/ai/mode').catch(() => null),
+      ])
+
       const hasDemo = saved.some((project) => project.id === demoProject.id)
       if (!hasDemo) {
         await localProjectRepository.createProject(demoProject)
       }
       const hydrated = hasDemo ? saved : [demoProject, ...saved]
       const urlProject = new URLSearchParams(window.location.search).get('project')
+
+      if (modeResponse?.ok) {
+        const modePayload = (await modeResponse.json()) as { mode?: string }
+        if (!cancelled && modePayload.mode) {
+          setAiMode(modePayload.mode)
+        }
+      }
+
       if (!cancelled) {
         setProjects(hydrated)
         setSelectedProjectId(urlProject && hydrated.some((project) => project.id === urlProject) ? urlProject : null)
