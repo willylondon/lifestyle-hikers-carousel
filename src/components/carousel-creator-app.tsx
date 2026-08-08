@@ -8,8 +8,9 @@ import { NewProjectDialog } from '@/components/new-project-dialog'
 import { CarouselEditor } from '@/components/carousel-editor'
 import { localProjectRepository } from '@/lib/repositories/local-project-repository'
 import { demoProject } from '@/lib/demo/demo-project'
+import { makeAnalysisImage } from '@/lib/image-utils'
 import type { Project, Slide } from '@/types'
-import type { SlideResult } from '@/lib/ai/schemas'
+import type { AnalysisResult, SlideResult } from '@/lib/ai/schemas'
 
 function mapSlideResult(result: SlideResult, order: number): Slide {
   return {
@@ -129,48 +130,86 @@ export function CarouselCreatorApp() {
   }
 
   async function generateCarousel(project: Project) {
-    const photosForGeneration =
-      aiMode === 'Mock'
-        ? project.photos.map((photo) => ({
-            id: photo.id,
-            originalName: photo.originalName,
-            url: photo.originalName,
-            width: photo.width,
-            height: photo.height,
-            mimeType: photo.mimeType,
-            analysis: photo.analysis,
-          }))
-        : project.photos
+    const toastId = toast.loading(`Preparing ${project.photos.length} photos…`)
+    upsertProject({ ...project, status: 'analyzing', updatedAt: new Date().toISOString() })
 
-    const response = await fetch('/api/ai/generate-carousel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: project.title,
-        location: project.location,
-        notes: project.notes,
-        photos: photosForGeneration,
-      }),
-    })
+    try {
+      const analyses: AnalysisResult[] = []
 
-    const payload = await response.json()
-    if (!response.ok) {
-      throw new Error(payload.error || 'Carousel generation failed.')
+      for (let index = 0; index < project.photos.length; index += 1) {
+        const photo = project.photos[index]
+        const analysisDataUrl = await makeAnalysisImage(photo.dataUrl || photo.url)
+        toast.loading(`Analyzing photo ${index + 1} of ${project.photos.length}…`, { id: toastId })
+
+        const response = await fetch('/api/ai/analyze-photo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: project.title,
+            location: project.location,
+            notes: project.notes,
+            photo: {
+              id: photo.id,
+              originalName: photo.originalName,
+              url: photo.originalName,
+              dataUrl: analysisDataUrl,
+              width: photo.width,
+              height: photo.height,
+              mimeType: 'image/jpeg',
+            },
+          }),
+        })
+
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || !payload) throw new Error(payload?.error || `Photo ${index + 1} analysis failed.`)
+        setAiMode(payload.mode)
+        analyses.push(payload.analysis)
+      }
+
+      toast.loading('Writing carousel and caption…', { id: toastId })
+      const compactPhotos = project.photos.map((photo) => ({
+        id: photo.id,
+        originalName: photo.originalName,
+        url: photo.originalName,
+        width: photo.width,
+        height: photo.height,
+        mimeType: 'image/jpeg' as const,
+      }))
+
+      const response = await fetch('/api/ai/generate-carousel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: project.title,
+          location: project.location,
+          notes: project.notes,
+          photos: compactPhotos,
+          analyses,
+        }),
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload) throw new Error(payload?.error || 'Carousel generation failed.')
+
+      setAiMode(payload.mode)
+      const nextProject: Project = {
+        ...project,
+        status: 'generated',
+        photos: project.photos.map((photo, index) => ({ ...photo, analysis: payload.analyses[index] })),
+        slides: payload.slides.map((slide: SlideResult, index: number) => mapSlideResult(slide, index)),
+        caption: payload.caption.caption,
+        hashtags: payload.caption.hashtags,
+        keywords: payload.caption.keywords,
+        updatedAt: new Date().toISOString(),
+      }
+      upsertProject(nextProject)
+      toast.success(`Carousel generated in ${payload.mode} mode.`, { id: toastId })
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Carousel generation failed.'
+      upsertProject({ ...project, status: 'ready', updatedAt: new Date().toISOString() })
+      toast.error(message, { id: toastId })
+      throw cause
     }
-
-    setAiMode(payload.mode)
-    const nextProject: Project = {
-      ...project,
-      status: 'generated',
-      photos: project.photos.map((photo, index) => ({ ...photo, analysis: payload.analyses[index] })),
-      slides: payload.slides.map((slide: SlideResult, index: number) => mapSlideResult(slide, index)),
-      caption: payload.caption.caption,
-      hashtags: payload.caption.hashtags,
-      keywords: payload.caption.keywords,
-      updatedAt: new Date().toISOString(),
-    }
-    upsertProject(nextProject)
-    toast.success(`Carousel generated in ${payload.mode} mode.`)
   }
 
   async function regenerateSlide(project: Project, slideId: string, target: 'slide' | 'headline' | 'body') {
@@ -178,6 +217,7 @@ export function CarouselCreatorApp() {
     const photo = project.photos.find((entry) => entry.id === slide?.photoId)
     if (!slide || !photo) return
 
+    const analysisDataUrl = await makeAnalysisImage(photo.dataUrl || photo.url)
     const response = await fetch('/api/ai/regenerate-slide', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -185,13 +225,13 @@ export function CarouselCreatorApp() {
         projectTitle: project.title,
         location: project.location,
         notes: project.notes,
-        photo,
+        photo: { ...photo, url: photo.originalName, dataUrl: analysisDataUrl, thumbnailDataUrl: undefined, mimeType: 'image/jpeg' },
         currentSlide: slide,
         target,
       }),
     })
-    const payload = await response.json()
-    if (!response.ok) throw new Error(payload.error || 'Slide regeneration failed.')
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload) throw new Error(payload?.error || 'Slide regeneration failed.')
     setAiMode(payload.mode)
 
     const replacement = mapSlideResult(payload.slide, slide.order)
@@ -227,16 +267,11 @@ export function CarouselCreatorApp() {
     const response = await fetch('/api/ai/generate-caption', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: project.title,
-        location: project.location,
-        notes: project.notes,
-        slides,
-      }),
+      body: JSON.stringify({ title: project.title, location: project.location, notes: project.notes, slides }),
     })
 
-    const payload = await response.json()
-    if (!response.ok) throw new Error(payload.error || 'Caption regeneration failed.')
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload) throw new Error(payload?.error || 'Caption regeneration failed.')
 
     setAiMode(payload.mode)
     upsertProject({
@@ -249,9 +284,7 @@ export function CarouselCreatorApp() {
     toast.success('Caption regenerated.')
   }
 
-  if (loading) {
-    return <div className="flex min-h-[60vh] items-center justify-center text-stone-400">Loading carousel projects…</div>
-  }
+  if (loading) return <div className="flex min-h-[60vh] items-center justify-center text-stone-400">Loading carousel projects…</div>
 
   return (
     <>
