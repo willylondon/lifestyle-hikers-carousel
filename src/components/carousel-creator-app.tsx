@@ -79,13 +79,26 @@ export function CarouselCreatorApp() {
   }, [selectedProjectId])
 
   useEffect(() => {
-    if (!selectedProject) return
+    if (!selectedProject) {
+      if (saveTimeout.current) {
+        window.clearTimeout(saveTimeout.current)
+        saveTimeout.current = null
+      }
+      return
+    }
+
     if (saveTimeout.current) window.clearTimeout(saveTimeout.current)
     saveTimeout.current = window.setTimeout(async () => {
       await localProjectRepository.updateProject(selectedProject)
-      const fresh = await localProjectRepository.listProjects()
-      setProjects(fresh)
+      saveTimeout.current = null
     }, 250)
+
+    return () => {
+      if (saveTimeout.current) {
+        window.clearTimeout(saveTimeout.current)
+        saveTimeout.current = null
+      }
+    }
   }, [selectedProject])
 
   function upsertProject(nextProject: Project) {

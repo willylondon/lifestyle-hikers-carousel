@@ -19,7 +19,7 @@ export function NewProjectDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreate: (project: Project) => void
+  onCreate: (project: Project) => Promise<void> | void
 }) {
   const [title, setTitle] = useState('')
   const [location, setLocation] = useState('')
@@ -100,7 +100,7 @@ export function NewProjectDialog({
 
     const now = new Date().toISOString()
     const projectInput = parsed.data!
-    onCreate({
+    await onCreate({
       id: makeId('project'),
       title: projectInput.title,
       location: projectInput.location,
