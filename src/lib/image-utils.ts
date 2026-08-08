@@ -16,19 +16,32 @@ export async function imageDimensions(dataUrl: string) {
   })
 }
 
-export async function makeThumbnail(dataUrl: string, maxEdge = 480) {
+async function resizeImage(dataUrl: string, maxEdge: number, quality: number) {
   const image = new Image()
   image.src = dataUrl
   await image.decode()
 
-  const ratio = image.width > image.height ? maxEdge / image.width : maxEdge / image.height
-  const width = Math.round(image.width * ratio)
-  const height = Math.round(image.height * ratio)
+  const largestEdge = Math.max(image.width, image.height)
+  const ratio = largestEdge > maxEdge ? maxEdge / largestEdge : 1
+  const width = Math.max(1, Math.round(image.width * ratio))
+  const height = Math.max(1, Math.round(image.height * ratio))
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
   if (!ctx) return dataUrl
   ctx.drawImage(image, 0, 0, width, height)
-  return canvas.toDataURL('image/jpeg', 0.84)
+  return canvas.toDataURL('image/jpeg', quality)
+}
+
+export async function makeProjectImage(dataUrl: string) {
+  return resizeImage(dataUrl, 2048, 0.88)
+}
+
+export async function makeAnalysisImage(dataUrl: string) {
+  return resizeImage(dataUrl, 1280, 0.72)
+}
+
+export async function makeThumbnail(dataUrl: string, maxEdge = 480) {
+  return resizeImage(dataUrl, maxEdge, 0.82)
 }
