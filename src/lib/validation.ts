@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { analysisResultSchema } from '@/lib/ai/schemas'
 
 export const supportedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'] as const
 
@@ -23,9 +24,14 @@ export const aiPhotoSchema = photoInputSchema.extend({
   analysis: z.any().optional(),
 })
 
+export const analyzePhotoSchema = projectInputSchema.extend({
+  photo: aiPhotoSchema,
+})
+
 export const generateCarouselSchema = projectInputSchema.extend({
   projectId: z.string().optional(),
   photos: z.array(aiPhotoSchema).min(5, 'Add at least 5 photos').max(15, 'A carousel can use up to 15 photos'),
+  analyses: z.array(analysisResultSchema).min(5).max(15).optional(),
 })
 
 export const regenerateSlideSchema = z.object({
