@@ -16,12 +16,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.json({ error: 'AI service unavailable.' }, { status: 503 })
   }
 
-  const rate = consume(`ai:${clientKey(request)}`)
-  if (!rate.allowed) {
-    if (isAi) {
-      return NextResponse.json({ error: 'Too many requests.' }, { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } })
+  if (isAi) {
+    const rate = consume(`ai:${clientKey(request)}`)
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests.' },
+        { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+      )
     }
-    return new NextResponse('Too many requests.', { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } })
   }
 
   if (!authConfigured()) return NextResponse.next()
