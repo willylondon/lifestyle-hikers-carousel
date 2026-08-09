@@ -123,7 +123,7 @@ const captionSchema = {
 
 export class OpenAIService implements AIService {
   async analyzeImages(input: CarouselGenerationInput): Promise<AnalysisResult[]> {
-    const prompt = `Analyze ${input.photos.length} event/hike photo${input.photos.length === 1 ? '' : 's'} for a Lifestyle Hikers Instagram story carousel. Lifestyle Hikers is not just documenting scenery; the content should reveal community, Jamaican culture, outdoor discovery, shared experience, and why people return. Identify the actual focal subject, faces/people that must stay unobstructed, useful negative space for typography, and the storytelling role each image can play in a sequence. Prefer left or right text-safe zones rather than centered text. Use only what is visible plus supplied project notes. If uncertain, put it in uncertaintyNotes. Return exactly one analysis object per photo in the same order. Project title: ${input.title}. Location: ${input.location}. Notes: ${input.notes}`
+    const prompt = `Analyze ${input.photos.length} event/hike photo${input.photos.length === 1 ? '' : 's'} for a Lifestyle Hikers Instagram story carousel. Lifestyle Hikers is not just documenting scenery; the content should reveal community, Jamaican culture, outdoor discovery, shared experience, and why people return. Identify the actual focal subject, faces/people that must stay unobstructed, useful negative space for typography, and the storytelling role each image can play in a sequence. Prefer left or right text-safe zones rather than centered text. Use only what is visible plus supplied project notes. If uncertain, put it in uncertaintyNotes. Return exactly one analysis object per photo in the same order. Project title: ${input.projectTitle}. Location: ${input.location}. Notes: ${input.notes}`
     const result = await callOpenAI<{ analyses: AnalysisResult[] }>({
       prompt,
       schemaName: 'carousel_image_analysis',
@@ -135,7 +135,7 @@ export class OpenAIService implements AIService {
 
   async generateCarousel(input: CarouselGenerationInput, analyses?: AnalysisResult[]): Promise<SlideResult[]> {
     const validImageIds = input.photos.map((photo) => photo.id)
-    const isEmancipation = /emancipation/i.test(`${input.title} ${input.notes}`)
+    const isEmancipation = /emancipation/i.test(`${input.projectTitle} ${input.notes}`)
     const emancipationContext = isEmancipation
       ? `This project is about Jamaican Emancipation Day. Build the story around what freedom means historically and communally, then connect that meaning to people choosing to gather, eat, play, walk, explore and spend time outdoors together. You may accurately teach this concise historical point once: Jamaica marks Emancipation Day on August 1, commemorating the end of slavery in 1834; formerly enslaved people were then forced into an apprenticeship system until full freedom in 1838. Do not turn the carousel into a history lecture. Use the fact as context, then return to the people and the present-day gathering.`
       : `If the project centers on a holiday, cultural event or historical occasion, include one useful, accurate piece of context and connect it naturally to the present-day community shown in the photographs. Do not invent facts.`
@@ -175,7 +175,7 @@ Full-bleed photography; small widely spaced LIFESTYLE HIKERS branding at top-lef
 IMAGE RULES:
 Each slide must use imageId exactly from this allowed list: ${JSON.stringify(validImageIds)}. Use every supplied photo once unless sequencing genuinely requires a repeated hero image. Never invent an imageId. Use null for cta except the final CTA or a slide that genuinely needs one.
 
-PROJECT: ${input.title}
+PROJECT: ${input.projectTitle}
 LOCATION: ${input.location}
 NOTES: ${input.notes}
 PHOTO METADATA: ${JSON.stringify(input.photos.map(({ id, originalName, width, height }) => ({ id, originalName, width, height })))}
