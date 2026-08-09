@@ -13,7 +13,15 @@ export async function POST(request: Request) {
       photos: payload.photos,
     })
 
-    return NextResponse.json({ mode: getAIMode(), analyses })
+    if (analyses.length !== payload.photos.length) {
+      console.error('Image analysis count mismatch', { requested: payload.photos.length, received: analyses.length })
+      return NextResponse.json({ error: 'Image analysis failed.' }, { status: 502 })
+    }
+
+    return NextResponse.json({
+      mode: getAIMode(),
+      analyses: analyses.map((analysis, index) => ({ photoId: payload.photos[index].id, analysis })),
+    })
   } catch (cause) {
     console.error('Image analysis failed', cause)
     return NextResponse.json({ error: 'Image analysis failed.' }, { status: 400 })
