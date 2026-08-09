@@ -20,7 +20,9 @@ vi.mock('@/components/photo-uploader', () => ({
 vi.mock('@/lib/image-utils', () => ({
   fileToDataUrl: vi.fn(async () => 'data:image/webp;base64,AAAA'),
   imageDimensions: vi.fn(async () => ({ width: 1080, height: 1350 })),
-  makeThumbnail: vi.fn(async () => 'data:image/webp;base64,BBBB'),
+  makeProjectImage: vi.fn(async () => 'data:image/jpeg;base64,AAAA'),
+  makeAnalysisImage: vi.fn(async () => 'data:image/jpeg;base64,AAAA'),
+  makeThumbnail: vi.fn(async () => 'data:image/jpeg;base64,BBBB'),
 }))
 
 import { NewProjectDialog } from '@/components/new-project-dialog'
@@ -40,10 +42,11 @@ describe('NewProjectDialog create flow', () => {
 
     fireEvent.change(screen.getByLabelText('Project title'), { target: { value: 'Acceptance Test' } })
     fireEvent.change(screen.getByLabelText('Hike / location'), { target: { value: 'Hellshire' } })
-    fireEvent.change(screen.getByLabelText('Hike notes / context'), { target: { value: 'Grounded trail notes' } })
+    fireEvent.change(screen.getByLabelText('Excursion notes / context'), { target: { value: 'Grounded trail notes for testing' } })
     fireEvent.click(screen.getByText('add-photos'))
 
-    await waitFor(() => expect(screen.getByText('5 / 15 photos selected')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('5 / 20 photos selected')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Create project')).toBeTruthy())
 
     fireEvent.click(screen.getByText('Create project'))
 
