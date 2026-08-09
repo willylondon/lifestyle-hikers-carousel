@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createAIService, getAIMode } from '@/lib/ai/service-factory'
-import { generateCarouselSchema } from '@/lib/validation'
+import { analyzeSchema } from '@/lib/validation'
 
 export async function POST(request: Request) {
   try {
-    const payload = generateCarouselSchema.parse(await request.json())
+    const payload = analyzeSchema.parse(await request.json())
     const service = createAIService()
     const analyses = await service.analyzeImages({
       projectTitle: payload.title,
@@ -13,11 +13,17 @@ export async function POST(request: Request) {
       photos: payload.photos,
     })
 
-    return NextResponse.json({ mode: getAIMode(), analyses })
-  } catch {
-    return NextResponse.json(
-      { error: 'Image analysis failed. Check the photos, notes, and configured AI service.' },
-      { status: 400 }
-    )
+    if (analyses.length !== payload.photos.length) {
+      console.error('Image analysis count mismatch', { requested: payload.photos.length, received: analyses.length })
+      return NextResponse.json({ error: 'Image analysis failed.' }, { status: 502 })
+    }
+
+    return NextResponse.json({
+      mode: getAIMode(),
+      analyses: analyses.map((analysis, index) => ({ photoId: payload.photos[index].id, analysis })),
+    })
+  } catch (cause) {
+    console.error('Image analysis failed', cause)
+    return NextResponse.json({ error: 'Image analysis failed.' }, { status: 400 })
   }
 }

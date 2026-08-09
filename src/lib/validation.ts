@@ -1,9 +1,24 @@
 import { z } from 'zod'
-import { analysisResultSchema } from '@/lib/ai/schemas'
+import { analysisResultSchema, slideResultSchema } from '@/lib/ai/schemas'
 
 export const supportedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'] as const
 export const INSTAGRAM_CAROUSEL_MAX_ITEMS = 20
 export const MIN_CAROUSEL_PHOTOS = 5
+export const MAX_DATA_URL_LENGTH = 8_000_000
+
+const imageDataUrlSchema = z.string().max(MAX_DATA_URL_LENGTH).refine(
+  (value) => /^data:image\/(jpeg|jpg|png|webp);base64,/.test(value),
+  'Image data must be a supported base64 data URL.'
+)
+
+const safeUrlSchema = z.string().max(512).refine((value) => {
+  if (!value.includes('://')) return true
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
+}, 'Only HTTPS URLs or plain filenames are allowed.')
 
 export const projectInputSchema = z.object({
   title: z.string().trim().min(3, 'Project title is required').max(120),
@@ -12,49 +27,80 @@ export const projectInputSchema = z.object({
 })
 
 export const photoInputSchema = z.object({
-  id: z.string(),
-  originalName: z.string(),
-  url: z.string(),
-  dataUrl: z.string().optional(),
-  thumbnailDataUrl: z.string().optional(),
-  width: z.number().positive(),
-  height: z.number().positive(),
+  id: z.string().max(128),
+  originalName: z.string().max(255),
+  url: safeUrlSchema,
+  dataUrl: imageDataUrlSchema.optional(),
+  thumbnailDataUrl: imageDataUrlSchema.optional(),
+  width: z.number().positive().max(20_000),
+  height: z.number().positive().max(20_000),
   mimeType: z.enum(supportedMimeTypes),
 })
 
 export const aiPhotoSchema = photoInputSchema.extend({
-  analysis: z.any().optional(),
+  analysis: analysisResultSchema.optional(),
+})
+
+export const analysedPhotoSchema = aiPhotoSchema.extend({
+  dataUrl: imageDataUrlSchema,
 })
 
 export const analyzePhotoSchema = projectInputSchema.extend({
-  photo: aiPhotoSchema,
+  photo: analysedPhotoSchema,
+})
+
+export const analyzeSchema = projectInputSchema.extend({
+  photos: z.array(analysedPhotoSchema).min(1).max(INSTAGRAM_CAROUSEL_MAX_ITEMS),
 })
 
 export const generateCarouselSchema = projectInputSchema.extend({
-  projectId: z.string().optional(),
+  projectId: z.string().max(128).optional(),
   photos: z.array(aiPhotoSchema)
     .min(MIN_CAROUSEL_PHOTOS, `Add at least ${MIN_CAROUSEL_PHOTOS} photos`)
     .max(INSTAGRAM_CAROUSEL_MAX_ITEMS, `Instagram carousels support up to ${INSTAGRAM_CAROUSEL_MAX_ITEMS} photos or videos`),
   analyses: z.array(analysisResultSchema)
     .min(MIN_CAROUSEL_PHOTOS)
-    .max(INSTAGRAM_CAROUSEL_MAX_ITEMS)
-    .optional(),
+    .max(INSTAGRAM_CAROUSEL_MAX_ITEMS),
+})
+
+const slideTypeSchema = slideResultSchema.shape.slideType
+const alignmentSchema = slideResultSchema.shape.textAlignment
+const placementSchema = slideResultSchema.shape.textPlacement
+const cropSchema = slideResultSchema.shape.cropPosition
+
+export const appSlideSchema = z.object({
+  id: z.string().max(128),
+  order: z.number().int().min(0).max(INSTAGRAM_CAROUSEL_MAX_ITEMS - 1),
+  photoId: z.string().max(128),
+  type: slideTypeSchema,
+  headline: z.string().max(500),
+  body: z.string().max(2000),
+  altText: z.string().max(2000),
+  alignment: alignmentSchema,
+  placement: placementSchema,
+  overlay: z.number().min(0).max(100),
+  shadow: z.boolean(),
+  crop: cropSchema,
+  cta: z.string().max(500).optional(),
+  confidence: z.number().min(0).max(1),
+  reasoningSummary: z.string().max(2000),
+  editedFields: z.array(z.string().max(64)).max(20),
 })
 
 export const regenerateSlideSchema = z.object({
-  projectTitle: z.string().min(1),
-  location: z.string().min(1),
-  notes: z.string().max(5000),
-  photo: aiPhotoSchema,
-  currentSlide: z.any(),
+  projectTitle: z.string().min(1).max(120),
+  location: z.string().min(1).max(120),
+  notes: z.string().min(20).max(5000),
+  photo: analysedPhotoSchema,
+  currentSlide: appSlideSchema,
   target: z.enum(['slide', 'headline', 'body']),
 })
 
 export const captionSchema = z.object({
-  title: z.string(),
-  location: z.string(),
-  notes: z.string(),
-  slides: z.array(z.any()).min(1).max(INSTAGRAM_CAROUSEL_MAX_ITEMS),
+  title: z.string().max(120),
+  location: z.string().max(120),
+  notes: z.string().min(20).max(5000),
+  slides: z.array(slideResultSchema).min(1).max(INSTAGRAM_CAROUSEL_MAX_ITEMS),
 })
 
 export function validatePhotoCount(count: number) {

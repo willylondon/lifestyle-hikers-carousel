@@ -13,7 +13,7 @@ export async function POST(request: Request) {
       photos: payload.photos,
     }
 
-    const analyses = payload.analyses ?? (await service.analyzeImages(input))
+    const analyses = payload.analyses
     const slides = await service.generateCarousel(input, analyses)
     const caption = await service.generateCaption({
       title: payload.title,
@@ -25,9 +25,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ mode: getAIMode(), analyses, slides, caption })
   } catch (cause) {
     console.error('Carousel generation failed', cause)
-    return NextResponse.json(
-      { error: cause instanceof Error ? cause.message : 'Carousel generation failed.' },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: 'Carousel generation failed.' }, { status: 400 })
   }
 }

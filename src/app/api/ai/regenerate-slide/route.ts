@@ -16,7 +16,8 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json({ mode: getAIMode(), slide })
-  } catch {
+  } catch (cause) {
+    console.error('Slide regeneration failed', cause)
     return NextResponse.json({ error: 'Slide regeneration failed.' }, { status: 400 })
   }
 }

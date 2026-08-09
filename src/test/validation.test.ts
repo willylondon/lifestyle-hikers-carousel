@@ -10,7 +10,7 @@ describe('photo validation', () => {
     expect(validatePhotoCount(8)).toBeNull()
   })
 
-  it('caps the upload at fifteen photos', () => {
-    expect(validatePhotoCount(16)).toContain('15 photos or fewer')
+  it('caps the upload at twenty photos', () => {
+    expect(validatePhotoCount(21)).toContain('20 photos or fewer')
   })
 })
