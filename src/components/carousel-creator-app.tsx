@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Toaster, toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { DashboardView } from '@/components/dashboard-view'
@@ -9,8 +10,11 @@ import { CarouselEditor } from '@/components/carousel-editor'
 import { localProjectRepository } from '@/lib/repositories/local-project-repository'
 import { demoProject } from '@/lib/demo/demo-project'
 import { makeAnalysisImage } from '@/lib/image-utils'
-import type { Project, Slide } from '@/types'
+import type { PhotoAsset, Project, Slide } from '@/types'
 import type { AnalysisResult, SlideResult } from '@/lib/ai/schemas'
+
+export const MAX_ANALYSIS_BATCH = 5
+export const MAX_ANALYSIS_REQUEST_BYTES = 3_500_000
 
 function mapSlideResult(result: SlideResult, order: number): Slide {
   return {
@@ -33,15 +37,70 @@ function mapSlideResult(result: SlideResult, order: number): Slide {
   }
 }
 
+type AnalysisPhoto = Pick<PhotoAsset, 'id' | 'originalName' | 'width' | 'height'> & {
+  url: string
+  dataUrl: string
+  mimeType: 'image/jpeg'
+}
+
+function analysisBody(project: Project, photos: AnalysisPhoto[]) {
+  return { title: project.title, location: project.location, notes: project.notes, photos }
+}
+
+function serializedBytes(value: unknown) {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength
+}
+
+export function splitAnalysisBatch(project: Project, photos: AnalysisPhoto[]): AnalysisPhoto[][] {
+  if (photos.length <= 1 || serializedBytes(analysisBody(project, photos)) <= MAX_ANALYSIS_REQUEST_BYTES) return [photos]
+  const midpoint = Math.ceil(photos.length / 2)
+  return [
+    ...splitAnalysisBatch(project, photos.slice(0, midpoint)),
+    ...splitAnalysisBatch(project, photos.slice(midpoint)),
+  ]
+}
+
+function isAbortError(cause: unknown) {
+  return cause instanceof DOMException && cause.name === 'AbortError'
+}
+
 export function CarouselCreatorApp() {
+  const router = useRouter()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [aiMode, setAiMode] = useState('Mock')
   const saveTimeout = useRef<number | null>(null)
+  const analysisAbortRef = useRef<AbortController | null>(null)
 
   const selectedProject = useMemo(() => projects.find((project) => project.id === selectedProjectId) ?? null, [projects, selectedProjectId])
+
+  const postJson = useCallback(async <T,>(url: string, body: unknown, signal?: AbortSignal): Promise<T> => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    })
+    const payload = await response.json().catch(() => null) as { error?: string } | null
+
+    if (response.status === 401) {
+      router.replace('/login')
+      router.refresh()
+      throw new Error('Your session expired. Sign in again.')
+    }
+
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('Retry-After')
+      throw new Error(`Too many requests. Try again${retryAfter ? ` in ${retryAfter} seconds` : ' shortly'}.`)
+    }
+
+    if (!response.ok || !payload) throw new Error(payload?.error || 'Request failed.')
+    return payload as T
+  }, [router])
+
+  useEffect(() => () => analysisAbortRef.current?.abort(), [])
 
   useEffect(() => {
     let cancelled = false
@@ -53,17 +112,19 @@ export function CarouselCreatorApp() {
       ])
 
       const hasDemo = saved.some((project) => project.id === demoProject.id)
-      if (!hasDemo) {
-        await localProjectRepository.createProject(demoProject)
-      }
+      if (!hasDemo) await localProjectRepository.createProject(demoProject)
       const hydrated = hasDemo ? saved : [demoProject, ...saved]
       const urlProject = new URLSearchParams(window.location.search).get('project')
 
+      if (modeResponse?.status === 401) {
+        router.replace('/login')
+        router.refresh()
+        return
+      }
+
       if (modeResponse?.ok) {
         const modePayload = (await modeResponse.json()) as { mode?: string }
-        if (!cancelled && modePayload.mode) {
-          setAiMode(modePayload.mode)
-        }
+        if (!cancelled && modePayload.mode) setAiMode(modePayload.mode)
       }
 
       if (!cancelled) {
@@ -74,10 +135,8 @@ export function CarouselCreatorApp() {
     }
 
     void bootstrap()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    return () => { cancelled = true }
+  }, [router])
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -142,41 +201,80 @@ export function CarouselCreatorApp() {
   }
 
   async function generateCarousel(project: Project) {
+    analysisAbortRef.current?.abort()
+    const controller = new AbortController()
+    analysisAbortRef.current = controller
     const toastId = toast.loading(`Preparing ${project.photos.length} photos…`)
     upsertProject({ ...project, status: 'analyzing', updatedAt: new Date().toISOString() })
 
     try {
-      const analyses: AnalysisResult[] = []
-
-      for (let index = 0; index < project.photos.length; index += 1) {
-        const photo = project.photos[index]
-        const analysisDataUrl = await makeAnalysisImage(photo.dataUrl || photo.url)
-        toast.loading(`Analyzing photo ${index + 1} of ${project.photos.length}…`, { id: toastId })
-
-        const response = await fetch('/api/ai/analyze-photo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: project.title,
-            location: project.location,
-            notes: project.notes,
-            photo: {
-              id: photo.id,
-              originalName: photo.originalName,
-              url: photo.originalName,
-              dataUrl: analysisDataUrl,
-              width: photo.width,
-              height: photo.height,
-              mimeType: 'image/jpeg',
-            },
-          }),
-        })
-
-        const payload = await response.json().catch(() => null)
-        if (!response.ok || !payload) throw new Error(payload?.error || `Photo ${index + 1} analysis failed.`)
-        setAiMode(payload.mode)
-        analyses.push(payload.analysis)
+      const analysisById = new Map<string, AnalysisResult>()
+      for (const photo of project.photos) {
+        if (photo.analysis) analysisById.set(photo.id, photo.analysis as AnalysisResult)
       }
+
+      const pending = project.photos.filter((photo) => !analysisById.has(photo.id))
+      let preparedCount = project.photos.length - pending.length
+
+      for (let offset = 0; offset < pending.length; offset += MAX_ANALYSIS_BATCH) {
+        const sourceBatch = pending.slice(offset, offset + MAX_ANALYSIS_BATCH)
+        const preparedBatch: AnalysisPhoto[] = []
+
+        for (const photo of sourceBatch) {
+          if (controller.signal.aborted) throw new DOMException('Generation cancelled', 'AbortError')
+          const dataUrl = await makeAnalysisImage(photo.dataUrl || photo.url)
+          preparedBatch.push({
+            id: photo.id,
+            originalName: photo.originalName,
+            url: photo.originalName,
+            dataUrl,
+            width: photo.width,
+            height: photo.height,
+            mimeType: 'image/jpeg',
+          })
+        }
+
+        const requestBatches = splitAnalysisBatch(project, preparedBatch)
+        for (const batch of requestBatches) {
+          const start = preparedCount + 1
+          const end = preparedCount + batch.length
+          toast.loading(`Analyzing photos ${start}–${end} of ${project.photos.length}…`, { id: toastId })
+
+          let result: { mode: string; analyses: Array<{ photoId: string; analysis: AnalysisResult }> } | null = null
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              result = await postJson('/api/ai/analyze', analysisBody(project, batch), controller.signal)
+              break
+            } catch (cause) {
+              if (isAbortError(cause) || attempt === 1) throw cause
+            }
+          }
+
+          if (!result || result.analyses.length !== batch.length) throw new Error('Image analysis returned an unexpected result count.')
+          const expectedIds = new Set(batch.map((photo) => photo.id))
+          for (const item of result.analyses) {
+            if (!expectedIds.has(item.photoId)) throw new Error('Image analysis returned an unexpected photo reference.')
+            analysisById.set(item.photoId, item.analysis)
+          }
+          if (batch.some((photo) => !analysisById.has(photo.id))) throw new Error('Image analysis did not return every requested photo.')
+
+          setAiMode(result.mode)
+          preparedCount += batch.length
+
+          const partialProject: Project = {
+            ...project,
+            status: 'analyzing',
+            photos: project.photos.map((photo) => ({ ...photo, analysis: analysisById.get(photo.id) ?? photo.analysis })),
+            updatedAt: new Date().toISOString(),
+          }
+          await localProjectRepository.updateProject(partialProject)
+          upsertProject(partialProject)
+        }
+      }
+
+      const analyses = project.photos.map((photo) => analysisById.get(photo.id))
+      if (analyses.some((analysis) => !analysis)) throw new Error('Not every photo has a completed analysis.')
+      const orderedAnalyses = analyses as AnalysisResult[]
 
       toast.loading('Writing carousel and caption…', { id: toastId })
       const compactPhotos = project.photos.map((photo) => ({
@@ -188,39 +286,46 @@ export function CarouselCreatorApp() {
         mimeType: 'image/jpeg' as const,
       }))
 
-      const response = await fetch('/api/ai/generate-carousel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: project.title,
-          location: project.location,
-          notes: project.notes,
-          photos: compactPhotos,
-          analyses,
-        }),
-      })
-
-      const payload = await response.json().catch(() => null)
-      if (!response.ok || !payload) throw new Error(payload?.error || 'Carousel generation failed.')
+      const payload = await postJson<{
+        mode: string
+        analyses: AnalysisResult[]
+        slides: SlideResult[]
+        caption: { caption: string; hashtags: string[]; keywords: string[] }
+      }>('/api/ai/generate-carousel', {
+        title: project.title,
+        location: project.location,
+        notes: project.notes,
+        photos: compactPhotos,
+        analyses: orderedAnalyses,
+      }, controller.signal)
 
       setAiMode(payload.mode)
       const nextProject: Project = {
         ...project,
         status: 'generated',
-        photos: project.photos.map((photo, index) => ({ ...photo, analysis: payload.analyses[index] })),
-        slides: payload.slides.map((slide: SlideResult, index: number) => mapSlideResult(slide, index)),
+        photos: project.photos.map((photo, index) => ({ ...photo, analysis: payload.analyses[index] ?? orderedAnalyses[index] })),
+        slides: payload.slides.map((slide, index) => mapSlideResult(slide, index)),
         caption: payload.caption.caption,
         hashtags: payload.caption.hashtags,
         keywords: payload.caption.keywords,
         updatedAt: new Date().toISOString(),
       }
+      await localProjectRepository.updateProject(nextProject)
       upsertProject(nextProject)
       toast.success(`Carousel generated in ${payload.mode} mode.`, { id: toastId })
     } catch (cause) {
+      if (isAbortError(cause)) {
+        toast.dismiss(toastId)
+        return
+      }
       const message = cause instanceof Error ? cause.message : 'Carousel generation failed.'
-      upsertProject({ ...project, status: 'ready', updatedAt: new Date().toISOString() })
+      const latestProject = await localProjectRepository.getProject(project.id)
+      if (latestProject) upsertProject({ ...latestProject, status: 'ready', updatedAt: new Date().toISOString() })
+      else upsertProject({ ...project, status: 'ready', updatedAt: new Date().toISOString() })
       toast.error(message, { id: toastId })
       throw cause
+    } finally {
+      if (analysisAbortRef.current === controller) analysisAbortRef.current = null
     }
   }
 
@@ -230,20 +335,14 @@ export function CarouselCreatorApp() {
     if (!slide || !photo) return
 
     const analysisDataUrl = await makeAnalysisImage(photo.dataUrl || photo.url)
-    const response = await fetch('/api/ai/regenerate-slide', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectTitle: project.title,
-        location: project.location,
-        notes: project.notes,
-        photo: { ...photo, url: photo.originalName, dataUrl: analysisDataUrl, thumbnailDataUrl: undefined, mimeType: 'image/jpeg' },
-        currentSlide: slide,
-        target,
-      }),
+    const payload = await postJson<{ mode: string; slide: SlideResult }>('/api/ai/regenerate-slide', {
+      projectTitle: project.title,
+      location: project.location,
+      notes: project.notes,
+      photo: { ...photo, url: photo.originalName, dataUrl: analysisDataUrl, thumbnailDataUrl: undefined, mimeType: 'image/jpeg' },
+      currentSlide: slide,
+      target,
     })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok || !payload) throw new Error(payload?.error || 'Slide regeneration failed.')
     setAiMode(payload.mode)
 
     const replacement = mapSlideResult(payload.slide, slide.order)
@@ -276,14 +375,10 @@ export function CarouselCreatorApp() {
       reasoningSummary: slide.reasoningSummary,
     }))
 
-    const response = await fetch('/api/ai/generate-caption', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: project.title, location: project.location, notes: project.notes, slides }),
-    })
-
-    const payload = await response.json().catch(() => null)
-    if (!response.ok || !payload) throw new Error(payload?.error || 'Caption regeneration failed.')
+    const payload = await postJson<{
+      mode: string
+      caption: { caption: string; hashtags: string[]; keywords: string[] }
+    }>('/api/ai/generate-caption', { title: project.title, location: project.location, notes: project.notes, slides })
 
     setAiMode(payload.mode)
     upsertProject({
