@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { analysisResultSchema } from '@/lib/ai/schemas'
 
 export const supportedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'] as const
+export const INSTAGRAM_CAROUSEL_MAX_ITEMS = 20
+export const MIN_CAROUSEL_PHOTOS = 5
 
 export const projectInputSchema = z.object({
   title: z.string().trim().min(3, 'Project title is required').max(120),
@@ -30,8 +32,13 @@ export const analyzePhotoSchema = projectInputSchema.extend({
 
 export const generateCarouselSchema = projectInputSchema.extend({
   projectId: z.string().optional(),
-  photos: z.array(aiPhotoSchema).min(5, 'Add at least 5 photos').max(15, 'A carousel can use up to 15 photos'),
-  analyses: z.array(analysisResultSchema).min(5).max(15).optional(),
+  photos: z.array(aiPhotoSchema)
+    .min(MIN_CAROUSEL_PHOTOS, `Add at least ${MIN_CAROUSEL_PHOTOS} photos`)
+    .max(INSTAGRAM_CAROUSEL_MAX_ITEMS, `Instagram carousels support up to ${INSTAGRAM_CAROUSEL_MAX_ITEMS} photos or videos`),
+  analyses: z.array(analysisResultSchema)
+    .min(MIN_CAROUSEL_PHOTOS)
+    .max(INSTAGRAM_CAROUSEL_MAX_ITEMS)
+    .optional(),
 })
 
 export const regenerateSlideSchema = z.object({
@@ -47,12 +54,12 @@ export const captionSchema = z.object({
   title: z.string(),
   location: z.string(),
   notes: z.string(),
-  slides: z.array(z.any()).min(1),
+  slides: z.array(z.any()).min(1).max(INSTAGRAM_CAROUSEL_MAX_ITEMS),
 })
 
 export function validatePhotoCount(count: number) {
-  if (count < 5) return 'Add at least 5 photos before generating a carousel.'
-  if (count > 15) return 'Use 15 photos or fewer in a single carousel.'
+  if (count < MIN_CAROUSEL_PHOTOS) return `Add at least ${MIN_CAROUSEL_PHOTOS} photos before generating a carousel.`
+  if (count > INSTAGRAM_CAROUSEL_MAX_ITEMS) return `Use ${INSTAGRAM_CAROUSEL_MAX_ITEMS} photos or fewer in a single Instagram carousel.`
   return null
 }
 
