@@ -49,6 +49,10 @@ export const analyzePhotoSchema = projectInputSchema.extend({
   photo: analysedPhotoSchema,
 })
 
+export const analyzeSchema = projectInputSchema.extend({
+  photos: z.array(analysedPhotoSchema).min(1).max(INSTAGRAM_CAROUSEL_MAX_ITEMS),
+})
+
 export const generateCarouselSchema = projectInputSchema.extend({
   projectId: z.string().max(128).optional(),
   photos: z.array(aiPhotoSchema)
