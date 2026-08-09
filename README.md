@@ -1,114 +1,39 @@
 # Lifestyle Hikers Carousel Creator
 
-**Turn hike photos into stories worth saving.**
+**Turn excursion photos into stories worth saving.**
 
-Lifestyle Hikers Carousel Creator is a production-oriented Next.js application for building branded Instagram carousel posts from hike photos and grounded field notes. It is designed as a dedicated editorial workflow tool rather than a generic AI chat UI.
+Lifestyle Hikers Carousel Creator is a Next.js application for building branded Instagram carousel stories from Lifestyle Hikers hikes, outings, trips, cultural experiences, breakfasts, community gatherings and other excursions.
 
 ## What it does
 
-- Create carousel projects from **5–15 hike photos**
-- Add hike notes, location context, and project metadata
-- Analyze images through an **AI service abstraction**
-- Generate a coherent editorial slide sequence using the storytelling model:
-  - **Image → Observation → Meaning → Lesson**
-- Edit headlines, body copy, placement, alignment, overlay, crop, and CTA
-- Regenerate an entire carousel, a single slide, a headline only, a body only, or the overall caption
-- Persist projects locally with **IndexedDB** and a **localStorage fallback**
-- Export a ZIP package containing:
-  - `slide-01.jpg`, `slide-02.jpg`, ...
-  - `caption.txt`
-  - `alt-text.txt`
-  - `metadata.json`
-  - `README.txt`
-
-## Product principles
-
-- **AI suggests narrative structure and text**
-- **Application code controls typography and layout deterministically**
-- **Manual edits always win** and are never silently overwritten
-- **Mock mode works immediately** without any API key
-- **OpenAI mode is server-side only** when enabled
+- Create projects from **5–20 photos**
+- Add location and grounded excursion context
+- Analyze photographs with a server-side AI service
+- Build one connected story using **Hook → Orient → Build → Payoff → CTA**
+- Enforce the Lifestyle Hikers **Three E's: Entertaining, Engaging, Educational**
+- Edit slide copy, placement, crop, overlays and CTA
+- Persist work locally with IndexedDB
+- Export Instagram-ready 1080×1350 JPG slides plus caption, alt text and metadata
 
 ## Stack
 
-- Next.js 16
-- React 19
-- TypeScript
+- Next.js 16 / React 19
+- TypeScript strict
 - Tailwind CSS v4
-- shadcn/ui
-- Zod
+- Zod 4
 - IndexedDB (`idb`)
 - JSZip
 - Vitest
-- dnd-kit
-
-## Architecture
-
-```text
-src/
-  app/
-    api/ai/
-  components/
-  config/
-  lib/
-    ai/
-    demo/
-    export/
-    integrations/
-    rendering/
-    repositories/
-  test/
-  types/
-```
-
-### Key modules
-
-#### UI
-- `DashboardView` — branding, recent projects, demo state, empty state
-- `NewProjectDialog` — upload + notes + validation
-- `CarouselEditor` — slide editing, regenerate actions, export
-- `SlidePreview` — branded 4:5 deterministic preview
-
-#### AI layer
-- `AIService` — shared interface
-- `MockAIService` — immediate local/demo mode
-- `OpenAIService` — server-side multimodal implementation
-- `service-factory.ts` — switches between Mock and OpenAI based on env vars
-
-#### Persistence
-- `ProjectRepository` — abstraction
-- `LocalProjectRepository` — IndexedDB primary, localStorage fallback
-
-#### Export
-- `export-service.ts` — canvas-based deterministic slide rendering and ZIP generation
-
-#### Future integrations
-- `N8nService` — webhook-ready integration layer, disabled by default
-- architecture prepared for future `SupabaseProjectRepository`
+- OpenAI Responses API in production AI mode
 
 ## Local development
 
-### Install
-
 ```bash
 npm install
-```
-
-### Run
-
-```bash
 npm run dev
 ```
 
-Open:
-
-```text
-http://localhost:3000
-```
-
-> Use `localhost`, not `127.0.0.1`, during local browser QA with Next 16 dev mode to avoid blocked cross-origin dev asset requests.
-
-## Quality checks
+Quality checks:
 
 ```bash
 npm run lint
@@ -119,133 +44,120 @@ npm run build
 
 ## Environment variables
 
-See `.env.example`.
+Copy `.env.example` and set only the variables needed for the environment.
 
-```env
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4.1-mini
-N8N_WEBHOOK_URL=
-NEXT_PUBLIC_APP_NAME=Lifestyle Hikers Carousel Creator
-NEXT_PUBLIC_APP_SUBTITLE=Turn hike photos into stories worth saving.
-```
+| Variable | Purpose |
+|---|---|
+| `APP_PASSWORD` | Enables password protection for the app and AI endpoints |
+| `APP_SESSION_SECRET` | HMAC signing secret for session cookies; recommended in production |
+| `OPENAI_API_KEY` | Enables live OpenAI mode |
+| `OPENAI_MODEL` | OpenAI model; defaults to `gpt-4.1-mini` |
+| `N8N_WEBHOOK_URL` | Optional best-effort telemetry/integration webhook |
 
-## Mock mode
+### Fail-closed rule
 
-Mock mode is the default when `OPENAI_API_KEY` is missing.
+If `OPENAI_API_KEY` is configured but `APP_PASSWORD` is not configured, `/api/ai/*` intentionally returns **503**. A live paid key must never become an unauthenticated public proxy.
 
-In Mock mode the app:
-- still creates projects
-- still generates slide structures
-- still generates demo analyses and captions
-- still exports full carousel packages
+Mock mode remains available without `OPENAI_API_KEY` and without authentication for local development.
 
-This allows V1 to run cleanly on Vercel without requiring AI credentials.
+## Security model
 
-## OpenAI mode
+Production AI access uses:
 
-When `OPENAI_API_KEY` is present, the app switches to `OpenAIService`.
+- password login
+- signed, expiring HttpOnly session cookie
+- `SameSite=Lax` and `Secure` cookies in production
+- server-side OpenAI key only
+- fail-closed AI routing
+- strict Zod request validation
+- HTTPS-only remote URL validation where URLs are accepted
+- no fallback from image data to arbitrary remote URLs for AI vision
+- prompt-injection boundaries around user title/location/notes
+- sanitized client error responses
+- explicit upstream timeouts
+- independent login and AI throttling
 
-All OpenAI calls run **server-side** via Next.js route handlers:
+The built-in rate limiter is **per application instance**, stored in memory, resets on cold starts and is not shared across Vercel instances. It is defense in depth only. It does **not** replace authentication or provider-side financial controls.
 
-- `POST /api/ai/analyze`
-- `POST /api/ai/generate-carousel`
-- `POST /api/ai/regenerate-slide`
-- `POST /api/ai/generate-caption`
+Set an OpenAI project budget/spend limit before enabling a production key.
 
-### OpenAI implementation notes
+## AI pipeline
 
-- AI responses are validated with **Zod**
-- The app is structured to support multimodal image analysis per uploaded image
-- Secrets are never exposed client-side
-- If OpenAI fails, the route returns a clean user-facing error
+The browser creates reduced analysis images instead of sending original phone-resolution photos to OpenAI.
 
-## Demo project
+Analysis requests are batched with:
 
-The app ships with a seeded **Hellshire coastal story** demo project using local Lifestyle Hikers imagery already available on this machine and copied into `public/demo/` for reliable exploration of the editor.
+- maximum batch size of 5
+- automatic splitting when serialized request payload approaches ~3.5 MB
+- one retry for a failed analysis batch
+- ID-keyed analysis mapping
+- partial persistence so successful paid analyses are reused after a later failure
+- cancellation on component unmount
 
-## Export behavior
+The final carousel-writing request contains compact photo metadata and completed analyses rather than the original image payloads.
 
-Export creates a ZIP package named like:
+## Instagram constraints
+
+The app currently enforces Instagram's native carousel maximum of **20 items**.
+
+Lifestyle Hikers projects require at least **5 photos** for the story workflow. Fewer than 20 should be used when they create a stronger narrative; the app should not pad a story solely to use every photograph.
+
+## Visual system
+
+The deterministic renderer owns the final look:
+
+- 1080×1350, 4:5
+- full-bleed photography
+- editorial white typography
+- small tracked `LIFESTYLE HIKERS` branding
+- thin divider rule
+- localized contrast gradient
+- restrained warm-gold accents
+- subtle page numbering such as `03 / 14`
+
+AI proposes text and placement; application code renders the final pixels.
+
+## Export package
+
+Exports are named like:
 
 ```text
 lifestyle-hikers-[project-name]-carousel.zip
 ```
 
-Inside:
-- high-resolution JPG slides rendered to **1080 × 1350**
-- caption text
-- alt text
-- metadata
-- lightweight export readme
+A package contains:
 
-## Accessibility
+- `slide-01.jpg` through the final slide
+- `caption.txt`
+- `alt-text.txt`
+- `metadata.json`
+- `README.txt`
 
-The app includes:
-- labeled form fields
-- visible focus states
-- keyboard-focusable controls
-- alt text generation fields
-- readable dark contrast system
-- deterministic text rendering instead of AI-generated text in imagery
+The export layer verifies that every slide references a real photo and does not silently omit broken slides.
 
-## Testing
+## Persistence
 
-Current automated coverage includes:
-- photo count validation
-- mock AI generation
-- project repository persistence
-- slide editing helper behavior
-- slide reordering helper behavior
+Projects currently use IndexedDB with localStorage fallback. This is a single-device workflow. Supabase-backed multi-user persistence is a later migration path and should be introduced together with real per-user authentication/RLS.
 
 ## Deployment
 
-Recommended flow:
-1. push to GitHub
-2. import repo into Vercel
-3. deploy in **Mock mode** first
-4. add OpenAI env vars later if desired
+Recommended production flow:
 
-## Future n8n integration
+1. Push a feature branch and verify the Vercel preview.
+2. Set `APP_PASSWORD` and preferably `APP_SESSION_SECRET` in Vercel.
+3. Set an OpenAI project spend/budget cap.
+4. Add `OPENAI_API_KEY` and `OPENAI_MODEL`.
+5. Verify unauthenticated `/api/ai/*` requests return 401.
+6. Verify the app shell redirects to `/login` without a valid session.
+7. Verify login, generation and export on the preview.
+8. Merge to `main` only after required checks pass.
 
-A clean webhook layer is prepared through `N8nService`.
-
-Intended future events:
-- `project.created`
-- `carousel.generated`
-- `carousel.approved`
-- `carousel.exported`
-- `instagram.publish.requested`
-
-If `N8N_WEBHOOK_URL` is absent, the app continues normally.
-
-## Future Supabase integration
-
-Planned future replacement path:
-- `LocalProjectRepository` → `SupabaseProjectRepository`
-
-This keeps the UI stable while swapping persistence and asset storage later.
-
-## Future Instagram publishing
-
-V1 does **not** auto-publish.
-
-Planned later architecture:
-- approved carousel
-- upload rendered assets to public storage
-- create Instagram media containers
-- publish carousel
-
-For V1, **export package** is the supported publishable deliverable.
+CI runs install, lint, typecheck, tests, build and production-dependency high-severity audit checks on pull requests and pushes to `main`.
 
 ## Known limitations
 
-- No auth in V1
-- Local persistence only in V1
-- Mock mode does not perform true visual analysis
-- Editor uses drag-and-drop for slide order, but advanced crop focal-point editing is not yet implemented beyond preset crop positions
-- OpenAI structured output is validated after response parsing; model prompt/schema tuning may still be needed once a live key is configured
-- Export is browser-canvas based, so final typography/rendering is deterministic but still dependent on browser canvas support
-
-## Next recommended step
-
-Add a real `OPENAI_API_KEY`, then tune multimodal prompts and output schemas against actual user-uploaded hike sets. After that, replace local persistence with Supabase storage and add approval-driven n8n publishing hooks.
+- Projects are device-local rather than multi-user/cloud synchronized.
+- The in-memory rate limiter is not globally distributed.
+- Mock mode does not perform true visual analysis.
+- Browser-canvas export depends on browser canvas/font support.
+- V1 exports packages; it does not auto-publish to Instagram.
