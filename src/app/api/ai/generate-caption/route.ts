@@ -14,7 +14,8 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json({ mode: getAIMode(), caption })
-  } catch {
+  } catch (cause) {
+    console.error('Caption generation failed', cause)
     return NextResponse.json({ error: 'Caption generation failed.' }, { status: 400 })
   }
 }
