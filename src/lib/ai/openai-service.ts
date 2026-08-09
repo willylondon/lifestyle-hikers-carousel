@@ -69,38 +69,51 @@ async function callOpenAI<T>(payload: {
   return JSON.parse(json.output_text) as T
 }
 
+const looseObjectSchema = {
+  type: 'object',
+  additionalProperties: true,
+} as const
+
 export class OpenAIService implements AIService {
   async analyzeImages(input: CarouselGenerationInput): Promise<AnalysisResult[]> {
-    const prompt = `Analyze ${input.photos.length} hike photo${input.photos.length === 1 ? '' : 's'} for a Lifestyle Hikers Instagram carousel. Use only what is visible in the image plus the supplied hike notes. If something is uncertain, say so. Hike notes: ${input.notes}`
-    const result = await callOpenAI<AnalysisResult[]>({
+    const prompt = `Analyze ${input.photos.length} hike photo${input.photos.length === 1 ? '' : 's'} for a Lifestyle Hikers Instagram carousel. Use only what is visible in the image plus the supplied hike notes. If something is uncertain, say so. Return a JSON object with an "analyses" array containing one analysis object per supplied photo, in the same order. Hike notes: ${input.notes}`
+    const result = await callOpenAI<{ analyses: AnalysisResult[] }>({
       prompt,
       schemaName: 'carousel_image_analysis',
       schema: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: true,
+        type: 'object',
+        properties: {
+          analyses: {
+            type: 'array',
+            items: looseObjectSchema,
+          },
         },
+        required: ['analyses'],
+        additionalProperties: false,
       },
       images: input.photos,
     })
-    return result.map((entry) => analysisResultSchema.parse(entry))
+    return result.analyses.map((entry) => analysisResultSchema.parse(entry))
   }
 
   async generateCarousel(input: CarouselGenerationInput, analyses?: AnalysisResult[]): Promise<SlideResult[]> {
-    const prompt = `Create a ${input.photos.length}-slide editorial hiking carousel for Lifestyle Hikers. Use concise, intelligent, emotionally restrained writing. Avoid clichés and exaggeration. Preserve the imageId values from the supplied photo metadata. Hike notes: ${input.notes}. Photo metadata: ${JSON.stringify(input.photos.map(({ id, originalName, width, height }) => ({ id, originalName, width, height })))}. Analyses: ${JSON.stringify(analyses ?? [])}`
-    const result = await callOpenAI<SlideResult[]>({
+    const prompt = `Create a ${input.photos.length}-slide editorial hiking carousel for Lifestyle Hikers. Use concise, intelligent, emotionally restrained writing. Avoid clichés and exaggeration. Preserve the imageId values from the supplied photo metadata. Return a JSON object with a "slides" array. Hike notes: ${input.notes}. Photo metadata: ${JSON.stringify(input.photos.map(({ id, originalName, width, height }) => ({ id, originalName, width, height })))}. Analyses: ${JSON.stringify(analyses ?? [])}`
+    const result = await callOpenAI<{ slides: SlideResult[] }>({
       prompt,
       schemaName: 'carousel_slides',
       schema: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: true,
+        type: 'object',
+        properties: {
+          slides: {
+            type: 'array',
+            items: looseObjectSchema,
+          },
         },
+        required: ['slides'],
+        additionalProperties: false,
       },
     })
-    return result.map((entry) => slideResultSchema.parse(entry))
+    return result.slides.map((entry) => slideResultSchema.parse(entry))
   }
 
   async regenerateSlide(input: RegenerateSlideInput): Promise<SlideResult> {
@@ -109,10 +122,7 @@ export class OpenAIService implements AIService {
       await callOpenAI<SlideResult>({
         prompt,
         schemaName: 'carousel_slide_regeneration',
-        schema: {
-          type: 'object',
-          additionalProperties: true,
-        },
+        schema: looseObjectSchema,
         images: [input.photo],
       })
     )
@@ -124,10 +134,7 @@ export class OpenAIService implements AIService {
       await callOpenAI<CaptionResult>({
         prompt,
         schemaName: 'carousel_caption',
-        schema: {
-          type: 'object',
-          additionalProperties: true,
-        },
+        schema: looseObjectSchema,
       })
     )
   }
