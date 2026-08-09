@@ -12,6 +12,7 @@ export function SlidePreview({ project, slide, photo }: { project: Project; slid
   const side = editorialSide(slide.placement)
   const textAlign = side === 'right' ? 'text-right items-end' : 'text-left items-start'
   const ruleAlign = side === 'right' ? 'ml-auto' : ''
+  const pageNumber = `${String(slide.order + 1).padStart(2, '0')} / ${String(project.slides.length).padStart(2, '0')}`
 
   return (
     <div className="relative mx-auto w-full max-w-[540px] overflow-hidden rounded-[2rem] border border-white/10 bg-black shadow-[0_30px_90px_rgba(0,0,0,0.45)]" style={{ aspectRatio: slideAspectRatio() }}>
@@ -53,6 +54,10 @@ export function SlidePreview({ project, slide, photo }: { project: Project; slid
             </div>
           ) : null}
         </div>
+      </div>
+
+      <div className="absolute bottom-6 left-8 text-[0.56rem] font-medium tracking-[0.16em] text-white/35 md:left-10">
+        {pageNumber}
       </div>
 
       {slide.type !== 'cta' && project.location ? (
