@@ -86,27 +86,29 @@ const analysisItemSchema = {
   additionalProperties: false,
 } as const
 
-const slideItemSchema = {
-  type: 'object',
-  properties: {
-    id: { type: 'string' },
-    imageId: { type: 'string' },
-    slideType: { type: 'string', enum: ['hook','observation','lesson','nature','culture','history','challenge','transition','reflection','cta'] },
-    headline: { type: 'string' },
-    body: { type: 'string' },
-    altText: { type: 'string' },
-    textAlignment: { type: 'string', enum: ['left', 'center', 'right'] },
-    textPlacement: { type: 'string', enum: placementEnum },
-    overlayStrength: { type: 'number', minimum: 0, maximum: 65 },
-    textShadow: { type: 'boolean' },
-    cropPosition: { type: 'string', enum: ['center', 'top', 'bottom', 'left', 'right'] },
-    cta: { type: ['string', 'null'] },
-    confidence: { type: 'number', minimum: 0, maximum: 1 },
-    reasoningSummary: { type: 'string' },
-  },
-  required: ['id','imageId','slideType','headline','body','altText','textAlignment','textPlacement','overlayStrength','textShadow','cropPosition','cta','confidence','reasoningSummary'],
-  additionalProperties: false,
-} as const
+function slideItemSchema(imageIds: string[]) {
+  return {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      imageId: { type: 'string', enum: imageIds },
+      slideType: { type: 'string', enum: ['hook','observation','lesson','nature','culture','history','challenge','transition','reflection','cta'] },
+      headline: { type: 'string' },
+      body: { type: 'string' },
+      altText: { type: 'string' },
+      textAlignment: { type: 'string', enum: ['left', 'right'] },
+      textPlacement: { type: 'string', enum: placementEnum },
+      overlayStrength: { type: 'number', minimum: 34, maximum: 65 },
+      textShadow: { type: 'boolean' },
+      cropPosition: { type: 'string', enum: ['center', 'top', 'bottom', 'left', 'right'] },
+      cta: { type: ['string', 'null'] },
+      confidence: { type: 'number', minimum: 0, maximum: 1 },
+      reasoningSummary: { type: 'string' },
+    },
+    required: ['id','imageId','slideType','headline','body','altText','textAlignment','textPlacement','overlayStrength','textShadow','cropPosition','cta','confidence','reasoningSummary'],
+    additionalProperties: false,
+  }
+}
 
 const captionSchema = {
   type: 'object',
@@ -121,7 +123,7 @@ const captionSchema = {
 
 export class OpenAIService implements AIService {
   async analyzeImages(input: CarouselGenerationInput): Promise<AnalysisResult[]> {
-    const prompt = `Analyze ${input.photos.length} hike photo${input.photos.length === 1 ? '' : 's'} for a Lifestyle Hikers Instagram carousel. Use only what is visible in the image plus the supplied hike notes. If something is uncertain, put it in uncertaintyNotes. Return exactly one analysis object per supplied photo, in the same order. Hike notes: ${input.notes}`
+    const prompt = `Analyze ${input.photos.length} hike photo${input.photos.length === 1 ? '' : 's'} for a premium Lifestyle Hikers editorial carousel. Identify the actual focal subject, faces/people that must stay unobstructed, and useful negative space for typography. Prefer left or right text-safe zones rather than centered text. Use only what is visible plus supplied hike notes. If uncertain, put it in uncertaintyNotes. Return exactly one analysis object per photo in the same order. Hike notes: ${input.notes}`
     const result = await callOpenAI<{ analyses: AnalysisResult[] }>({
       prompt,
       schemaName: 'carousel_image_analysis',
@@ -132,28 +134,29 @@ export class OpenAIService implements AIService {
   }
 
   async generateCarousel(input: CarouselGenerationInput, analyses?: AnalysisResult[]): Promise<SlideResult[]> {
-    const prompt = `Create a ${input.photos.length}-slide editorial hiking carousel for Lifestyle Hikers. Use concise, intelligent, emotionally restrained writing. Avoid clichés and exaggeration. Preserve imageId values from the supplied photo metadata. Use null for cta when a slide has no CTA. Hike notes: ${input.notes}. Photo metadata: ${JSON.stringify(input.photos.map(({ id, originalName, width, height }) => ({ id, originalName, width, height })))}. Analyses: ${JSON.stringify(analyses ?? [])}`
+    const validImageIds = input.photos.map((photo) => photo.id)
+    const prompt = `Art-direct a ${input.photos.length}-slide Lifestyle Hikers Instagram carousel in a premium outdoor editorial style. The visual reference is a full-bleed photograph with small widely spaced LIFESTYLE HIKERS branding at top-left; a large bold white headline arranged in 2-5 short lines; a thin white divider rule; restrained supporting copy; and, on CTA slides only, a bold CTA plus @lifestylehikers in warm gold. The photograph must remain dominant. Place typography only in genuine negative space and never across faces, bodies, hands, or the main focal subject. Prefer left-aligned editorial composition when safe; use right alignment only when the image clearly requires it; avoid centered typography. Keep headlines concise, literary, specific to the visible moment, and generally 6-14 words. Keep body copy to 1-3 short sentences, grounded in the photo and hike notes. Avoid generic motivation, clichés, invented history, invented locations, or claims not supported by the image/notes. Each slide must use imageId exactly from this allowed list: ${JSON.stringify(validImageIds)}. Use every supplied photo once unless sequencing requires a repeated hero image; never invent an imageId. Use null for cta except the final CTA or a slide that genuinely needs one. Hike notes: ${input.notes}. Photo metadata: ${JSON.stringify(input.photos.map(({ id, originalName, width, height }) => ({ id, originalName, width, height })))}. Analyses: ${JSON.stringify(analyses ?? [])}`
     const result = await callOpenAI<{ slides: SlideResult[] }>({
       prompt,
       schemaName: 'carousel_slides',
-      schema: { type: 'object', properties: { slides: { type: 'array', items: slideItemSchema } }, required: ['slides'], additionalProperties: false },
+      schema: { type: 'object', properties: { slides: { type: 'array', items: slideItemSchema(validImageIds) } }, required: ['slides'], additionalProperties: false },
     })
     return result.slides.map((entry) => slideResultSchema.parse({ ...entry, cta: entry.cta ?? undefined }))
   }
 
   async regenerateSlide(input: RegenerateSlideInput): Promise<SlideResult> {
-    const prompt = `Regenerate a Lifestyle Hikers carousel slide. Replace only the ${input.target}. Keep the rest coherent with the current slide. Use null for cta when there is no CTA. Current slide: ${JSON.stringify(input.currentSlide)}. Notes: ${input.notes}`
-    const result = await callOpenAI<SlideResult & { cta: string | null }>({ prompt, schemaName: 'carousel_slide_regeneration', schema: slideItemSchema, images: [input.photo] })
+    const prompt = `Regenerate a single Lifestyle Hikers editorial slide. Preserve the exact imageId ${input.photo.id}. Replace only the ${input.target}. Keep the design voice premium, restrained, image-specific, and concise. Use large editorial headline language, supporting copy that stays grounded in the visible photo and notes, left/right placement based on negative space, and no centered typography. Use null for cta when there is no CTA. Current slide: ${JSON.stringify(input.currentSlide)}. Notes: ${input.notes}`
+    const result = await callOpenAI<SlideResult & { cta: string | null }>({ prompt, schemaName: 'carousel_slide_regeneration', schema: slideItemSchema([input.photo.id]), images: [input.photo] })
     return slideResultSchema.parse({ ...result, cta: result.cta ?? undefined })
   }
 
   async generateCaption(input: { title: string; location: string; notes: string; slides: SlideResult[] }): Promise<CaptionResult> {
-    const prompt = `Create one Instagram caption for a Lifestyle Hikers carousel. Keep it concise and grounded. Title: ${input.title}. Location: ${input.location}. Notes: ${input.notes}. Slides: ${JSON.stringify(input.slides)}`
+    const prompt = `Create one Instagram caption for a Lifestyle Hikers editorial carousel. Keep it concise, grounded, specific, and free of generic motivational language. Title: ${input.title}. Location: ${input.location}. Notes: ${input.notes}. Slides: ${JSON.stringify(input.slides)}`
     return captionResultSchema.parse(await callOpenAI<CaptionResult>({ prompt, schemaName: 'carousel_caption', schema: captionSchema }))
   }
 
   async generateAltText(input: { slide: SlideResult; photo: PhotoAsset }): Promise<string> {
-    const prompt = `Write factual alt text for a Lifestyle Hikers carousel slide. Slide: ${JSON.stringify(input.slide)}.`
+    const prompt = `Write factual alt text for a Lifestyle Hikers carousel slide. Describe the visible scene without guessing identity or unsupported context. Slide: ${JSON.stringify(input.slide)}.`
     const result = await callOpenAI<{ altText: string }>({ prompt, schemaName: 'slide_alt_text', schema: { type: 'object', properties: { altText: { type: 'string' } }, required: ['altText'], additionalProperties: false }, images: [input.photo] })
     return result.altText
   }

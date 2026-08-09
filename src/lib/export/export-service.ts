@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { brandConfig } from '@/config/brand'
+import { brandConfig, editorialStyle } from '@/config/brand'
 import type { PhotoAsset, Project, Slide } from '@/types'
 
 function loadImage(src: string) {
@@ -13,13 +13,13 @@ function loadImage(src: string) {
 }
 
 function drawWrappedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines: number) {
-  const words = text.split(/\s+/)
+  const words = text.trim().split(/\s+/).filter(Boolean)
   const lines: string[] = []
   let current = ''
 
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word
-    if (ctx.measureText(candidate).width <= maxWidth) {
+    if (!current || ctx.measureText(candidate).width <= maxWidth) {
       current = candidate
     } else {
       lines.push(current)
@@ -31,22 +31,12 @@ function drawWrappedText(ctx: CanvasRenderingContext2D, text: string, x: number,
   return lines.slice(0, maxLines).map((line, index) => ({ line, y: y + index * lineHeight }))
 }
 
-function computeTextOrigin(slide: Slide) {
-  const margin = brandConfig.safeMargin
-  const width = brandConfig.canvasWidth
-  const height = brandConfig.canvasHeight
-  const map = {
-    'top-left': { x: margin, y: margin + 10 },
-    'top-center': { x: width / 2, y: margin + 10 },
-    'top-right': { x: width - margin, y: margin + 10 },
-    'center-left': { x: margin, y: height / 2 - 120 },
-    center: { x: width / 2, y: height / 2 - 120 },
-    'center-right': { x: width - margin, y: height / 2 - 120 },
-    'bottom-left': { x: margin, y: height - 310 },
-    'bottom-center': { x: width / 2, y: height - 310 },
-    'bottom-right': { x: width - margin, y: height - 310 },
-  } satisfies Record<Slide['placement'], { x: number; y: number }>
-  return map[slide.placement]
+function drawTrackedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, tracking: number) {
+  let cursor = x
+  for (const character of text) {
+    ctx.fillText(character, cursor, y)
+    cursor += ctx.measureText(character).width + tracking
+  }
 }
 
 function drawImageCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, crop: Slide['crop']) {
@@ -66,6 +56,37 @@ function drawImageCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, 
   ctx.drawImage(image, dx, dy, drawW, drawH)
 }
 
+function isRightPlacement(slide: Slide) {
+  return slide.placement.endsWith('right')
+}
+
+function contentStartY(slide: Slide) {
+  if (slide.placement.startsWith('top')) return 205
+  if (slide.placement.startsWith('bottom')) return 710
+  return 410
+}
+
+function drawEditorialOverlay(ctx: CanvasRenderingContext2D, slide: Slide) {
+  const cw = brandConfig.canvasWidth
+  const ch = brandConfig.canvasHeight
+  const alpha = Math.min(0.76, Math.max(0.36, slide.overlay / 100))
+  const right = isRightPlacement(slide)
+  const gradient = ctx.createLinearGradient(right ? cw : 0, 0, right ? 0 : cw, 0)
+  gradient.addColorStop(0, `rgba(5,7,6,${alpha})`)
+  gradient.addColorStop(0.32, `rgba(5,7,6,${alpha * 0.72})`)
+  gradient.addColorStop(0.60, `rgba(5,7,6,${alpha * 0.16})`)
+  gradient.addColorStop(0.78, 'rgba(5,7,6,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, cw, ch)
+
+  const vignette = ctx.createLinearGradient(0, 0, 0, ch)
+  vignette.addColorStop(0, 'rgba(5,7,6,0.16)')
+  vignette.addColorStop(0.45, 'rgba(5,7,6,0)')
+  vignette.addColorStop(1, 'rgba(5,7,6,0.14)')
+  ctx.fillStyle = vignette
+  ctx.fillRect(0, 0, cw, ch)
+}
+
 export async function renderSlideToBlob(slide: Slide, photo: PhotoAsset, project: Project) {
   const canvas = document.createElement('canvas')
   canvas.width = brandConfig.canvasWidth
@@ -75,42 +96,76 @@ export async function renderSlideToBlob(slide: Slide, photo: PhotoAsset, project
 
   const image = await loadImage(photo.dataUrl || photo.url)
   drawImageCover(ctx, image, slide.crop)
+  drawEditorialOverlay(ctx, slide)
 
-  const gradient = ctx.createLinearGradient(0, 0, 0, brandConfig.canvasHeight)
-  gradient.addColorStop(0, `rgba(8,10,9,${slide.overlay / 180})`)
-  gradient.addColorStop(1, `rgba(8,10,9,${slide.overlay / 100})`)
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, brandConfig.canvasWidth, brandConfig.canvasHeight)
+  const margin = brandConfig.safeMargin
+  const right = isRightPlacement(slide)
+  const x = right ? brandConfig.canvasWidth - margin : margin
+  const maxWidth = editorialStyle.textColumnWidth
+  ctx.textAlign = right ? 'right' : 'left'
+  ctx.textBaseline = 'alphabetic'
 
-  const origin = computeTextOrigin(slide)
-  const maxWidth = brandConfig.canvasWidth - brandConfig.safeMargin * 2
+  ctx.save()
+  ctx.textAlign = 'left'
   ctx.fillStyle = brandConfig.textColor
-  ctx.textAlign = slide.alignment
-  if (slide.shadow) {
-    ctx.shadowColor = 'rgba(0,0,0,0.42)'
-    ctx.shadowBlur = 20
-    ctx.shadowOffsetY = 6
-  }
+  ctx.font = `600 ${brandConfig.metaSize}px Inter, Arial, sans-serif`
+  drawTrackedText(ctx, brandConfig.brandName, margin, editorialStyle.brandTop, editorialStyle.brandTracking)
+  ctx.restore()
 
   let headlineSize = brandConfig.headlineSize
-  if (slide.headline.length > 75) headlineSize = 48
-  ctx.font = `700 ${headlineSize}px Inter, system-ui, sans-serif`
-  const headlineLines = drawWrappedText(ctx, slide.headline, origin.x, origin.y, maxWidth, headlineSize + 8, 4)
-  headlineLines.forEach(({ line, y }) => ctx.fillText(line, origin.x, y, maxWidth))
+  if (slide.headline.length > 72) headlineSize = 66
+  if (slide.headline.length > 100) headlineSize = 58
+
+  ctx.fillStyle = brandConfig.textColor
+  ctx.font = `700 ${headlineSize}px Inter, Arial, sans-serif`
+  if (slide.shadow) {
+    ctx.shadowColor = 'rgba(0,0,0,0.38)'
+    ctx.shadowBlur = 18
+    ctx.shadowOffsetY = 5
+  }
+
+  const lineHeight = Math.round(headlineSize * 1.02)
+  const headlineLines = drawWrappedText(ctx, slide.headline, x, contentStartY(slide), maxWidth, lineHeight, 5)
+  headlineLines.forEach(({ line, y }) => ctx.fillText(line, x, y, maxWidth))
 
   ctx.shadowBlur = 0
   ctx.shadowOffsetY = 0
-  ctx.font = `400 ${brandConfig.bodySize}px Inter, system-ui, sans-serif`
-  ctx.fillStyle = brandConfig.supportingTextColor
-  const bodyStart = headlineLines.at(-1)?.y ? headlineLines.at(-1)!.y + 58 : origin.y + 80
-  const bodyLines = drawWrappedText(ctx, slide.body, origin.x, bodyStart, maxWidth, brandConfig.bodySize + 10, 4)
-  bodyLines.forEach(({ line, y }) => ctx.fillText(line, origin.x, y, maxWidth))
 
-  ctx.font = `600 ${brandConfig.metaSize}px Inter, system-ui, sans-serif`
-  ctx.fillStyle = brandConfig.supportingTextColor
-  ctx.fillText(project.title.toUpperCase(), origin.x, brandConfig.canvasHeight - brandConfig.safeMargin + 4, maxWidth)
-  ctx.textAlign = 'right'
-  ctx.fillText(brandConfig.handle, brandConfig.canvasWidth - brandConfig.safeMargin, brandConfig.canvasHeight - brandConfig.safeMargin + 4)
+  const lastHeadlineY = headlineLines.at(-1)?.y ?? contentStartY(slide)
+  const ruleY = lastHeadlineY + editorialStyle.ruleGapTop
+  const ruleStart = right ? x - editorialStyle.ruleWidth : x
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'
+  ctx.fillRect(ruleStart, ruleY, editorialStyle.ruleWidth, editorialStyle.ruleThickness)
+
+  const bodyY = ruleY + editorialStyle.ruleGapBottom + brandConfig.bodySize
+  if (slide.body) {
+    ctx.font = `400 ${brandConfig.bodySize}px Inter, Arial, sans-serif`
+    ctx.fillStyle = brandConfig.supportingTextColor
+    const bodyLines = drawWrappedText(ctx, slide.body, x, bodyY, maxWidth, Math.round(brandConfig.bodySize * 1.42), 5)
+    bodyLines.forEach(({ line, y }) => ctx.fillText(line, x, y, maxWidth))
+
+    if (slide.cta) {
+      const lastBodyY = bodyLines.at(-1)?.y ?? bodyY
+      ctx.font = `700 ${brandConfig.bodySize}px Inter, Arial, sans-serif`
+      ctx.fillStyle = brandConfig.textColor
+      ctx.fillText(slide.cta, x, lastBodyY + 72, maxWidth)
+      ctx.fillStyle = editorialStyle.accentColor
+      ctx.fillText(brandConfig.handle, x, lastBodyY + 116, maxWidth)
+    }
+  } else if (slide.cta) {
+    ctx.font = `700 ${brandConfig.bodySize}px Inter, Arial, sans-serif`
+    ctx.fillStyle = brandConfig.textColor
+    ctx.fillText(slide.cta, x, bodyY, maxWidth)
+    ctx.fillStyle = editorialStyle.accentColor
+    ctx.fillText(brandConfig.handle, x, bodyY + 44, maxWidth)
+  }
+
+  if (slide.type !== 'cta' && project.location) {
+    ctx.textAlign = 'right'
+    ctx.font = `500 16px Inter, Arial, sans-serif`
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'
+    ctx.fillText(project.location.toUpperCase(), brandConfig.canvasWidth - margin, brandConfig.canvasHeight - 48)
+  }
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -123,42 +178,39 @@ export async function renderSlideToBlob(slide: Slide, photo: PhotoAsset, project
 export async function exportProjectPackage(project: Project) {
   const zip = new JSZip()
   const photosById = new Map(project.photos.map((photo) => [photo.id, photo]))
+  let exportedSlides = 0
 
   for (const slide of [...project.slides].sort((a, b) => a.order - b.order)) {
     const photo = photosById.get(slide.photoId)
-    if (!photo) continue
+    if (!photo) throw new Error(`Slide ${slide.order + 1} references a missing photo. Regenerate the carousel before exporting.`)
     const blob = await renderSlideToBlob(slide, photo, project)
     zip.file(`slide-${String(slide.order + 1).padStart(2, '0')}.jpg`, blob)
+    exportedSlides += 1
   }
 
+  if (exportedSlides !== project.slides.length) throw new Error('Export integrity check failed: not every slide was rendered.')
+
   zip.file('caption.txt', project.caption)
-  zip.file(
-    'alt-text.txt',
-    [...project.slides]
-      .sort((a, b) => a.order - b.order)
-      .map((slide, index) => `Slide ${index + 1}: ${slide.altText}`)
-      .join('\n\n')
-  )
-  zip.file(
-    'README.txt',
-    `Lifestyle Hikers Carousel Creator\n\nProject: ${project.title}\nLocation: ${project.location}\nSlides: ${project.slides.length}\nCanvas: ${brandConfig.canvasWidth}x${brandConfig.canvasHeight}\n`
-  )
-  zip.file(
-    'metadata.json',
-    JSON.stringify(
-      {
-        project,
-        slides: project.slides,
-        caption: project.caption,
-        hashtags: project.hashtags,
-        keywords: project.keywords,
-        brand: brandConfig,
-        generatedAt: new Date().toISOString(),
-      },
-      null,
-      2
-    )
-  )
+  zip.file('alt-text.txt', [...project.slides].sort((a, b) => a.order - b.order).map((slide, index) => `Slide ${index + 1}: ${slide.altText}`).join('\n\n'))
+  zip.file('README.txt', `Lifestyle Hikers Carousel Creator\n\nProject: ${project.title}\nLocation: ${project.location}\nSlides: ${project.slides.length}\nCanvas: ${brandConfig.canvasWidth}x${brandConfig.canvasHeight}\n`)
+  zip.file('metadata.json', JSON.stringify({
+    project: {
+      id: project.id,
+      title: project.title,
+      location: project.location,
+      notes: project.notes,
+      status: project.status,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+    },
+    photos: project.photos.map(({ id, originalName, width, height, mimeType, analysis }) => ({ id, originalName, width, height, mimeType, analysis })),
+    slides: project.slides,
+    caption: project.caption,
+    hashtags: project.hashtags,
+    keywords: project.keywords,
+    brand: brandConfig,
+    generatedAt: new Date().toISOString(),
+  }, null, 2))
 
   const archive = await zip.generateAsync({ type: 'blob' })
   const safeName = project.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')
