@@ -123,7 +123,7 @@ const captionSchema = {
 
 export class OpenAIService implements AIService {
   async analyzeImages(input: CarouselGenerationInput): Promise<AnalysisResult[]> {
-    const prompt = `Analyze ${input.photos.length} hike photo${input.photos.length === 1 ? '' : 's'} for a premium Lifestyle Hikers editorial carousel. Identify the actual focal subject, faces/people that must stay unobstructed, and useful negative space for typography. Prefer left or right text-safe zones rather than centered text. Use only what is visible plus supplied hike notes. If uncertain, put it in uncertaintyNotes. Return exactly one analysis object per photo in the same order. Hike notes: ${input.notes}`
+    const prompt = `Analyze ${input.photos.length} event/hike photo${input.photos.length === 1 ? '' : 's'} for a Lifestyle Hikers Instagram story carousel. Lifestyle Hikers is not just documenting scenery; the content should reveal community, Jamaican culture, outdoor discovery, shared experience, and why people return. Identify the actual focal subject, faces/people that must stay unobstructed, useful negative space for typography, and the storytelling role each image can play in a sequence. Prefer left or right text-safe zones rather than centered text. Use only what is visible plus supplied project notes. If uncertain, put it in uncertaintyNotes. Return exactly one analysis object per photo in the same order. Project title: ${input.projectTitle}. Location: ${input.location}. Notes: ${input.notes}`
     const result = await callOpenAI<{ analyses: AnalysisResult[] }>({
       prompt,
       schemaName: 'carousel_image_analysis',
@@ -135,7 +135,52 @@ export class OpenAIService implements AIService {
 
   async generateCarousel(input: CarouselGenerationInput, analyses?: AnalysisResult[]): Promise<SlideResult[]> {
     const validImageIds = input.photos.map((photo) => photo.id)
-    const prompt = `Art-direct a ${input.photos.length}-slide Lifestyle Hikers Instagram carousel in a premium outdoor editorial style. The visual reference is a full-bleed photograph with small widely spaced LIFESTYLE HIKERS branding at top-left; a large bold white headline arranged in 2-5 short lines; a thin white divider rule; restrained supporting copy; and, on CTA slides only, a bold CTA plus @lifestylehikers in warm gold. The photograph must remain dominant. Place typography only in genuine negative space and never across faces, bodies, hands, or the main focal subject. Prefer left-aligned editorial composition when safe; use right alignment only when the image clearly requires it; avoid centered typography. Keep headlines concise, literary, specific to the visible moment, and generally 6-14 words. Keep body copy to 1-3 short sentences, grounded in the photo and hike notes. Avoid generic motivation, clichés, invented history, invented locations, or claims not supported by the image/notes. Each slide must use imageId exactly from this allowed list: ${JSON.stringify(validImageIds)}. Use every supplied photo once unless sequencing requires a repeated hero image; never invent an imageId. Use null for cta except the final CTA or a slide that genuinely needs one. Hike notes: ${input.notes}. Photo metadata: ${JSON.stringify(input.photos.map(({ id, originalName, width, height }) => ({ id, originalName, width, height })))}. Analyses: ${JSON.stringify(analyses ?? [])}`
+    const isEmancipation = /emancipation/i.test(`${input.projectTitle} ${input.notes}`)
+    const emancipationContext = isEmancipation
+      ? `This project is about Jamaican Emancipation Day. Build the story around what freedom means historically and communally, then connect that meaning to people choosing to gather, eat, play, walk, explore and spend time outdoors together. You may accurately teach this concise historical point once: Jamaica marks Emancipation Day on August 1, commemorating the end of slavery in 1834; formerly enslaved people were then forced into an apprenticeship system until full freedom in 1838. Do not turn the carousel into a history lecture. Use the fact as context, then return to the people and the present-day gathering.`
+      : `If the project centers on a holiday, cultural event or historical occasion, include one useful, accurate piece of context and connect it naturally to the present-day community shown in the photographs. Do not invent facts.`
+
+    const prompt = `Create a ${input.photos.length}-slide Lifestyle Hikers Instagram carousel designed for saves, shares, comments, profile visits and follows without using clickbait. This must read as ONE STORY, not ${input.photos.length} unrelated photo captions.
+
+BRAND PURPOSE:
+Lifestyle Hikers helps people experience Jamaica through movement, nature, culture and community. A reader should finish the carousel having learned something, felt the warmth of the group, and understood why following @lifestylehikers gives them access to a side of Jamaica they may not see from the road.
+
+STORY ARC:
+1. HOOK: open with a strong idea, tension, question or observation that makes the viewer swipe. Do not simply announce the event.
+2. CONTEXT: give the reader one useful cultural, historical or place-based insight relevant to the occasion.
+3. PEOPLE: show how the Lifestyle Hikers community came together and what the gathering felt like.
+4. EXPERIENCE: use food, games, walking, river, trail, conversation or other visible activities as evidence of community rather than listing them mechanically.
+5. MEANING: connect the visible experience to a larger idea such as freedom, belonging, heritage, discovery or shared memory, without becoming sentimental.
+6. DISCOVERY: give the reader a reason to value outdoor exploration in Jamaica and what Lifestyle Hikers reveals through these experiences.
+7. CTA: end with an invitation that feels earned. Encourage a follow, comment, save, share or future hike. The CTA must tell the reader what they will gain by following Lifestyle Hikers.
+For projects with more than seven images, extend the middle of the story with distinct moments; do not repeat the same message.
+
+${emancipationContext}
+
+WRITING RULES:
+- Headlines: 4-10 words, strong enough to stand alone, human and memorable.
+- Body copy: normally 12-35 words, maximum 2 short sentences.
+- Do not describe the obvious photo unless the detail advances the story.
+- Do not use generic phrases such as good vibes, making memories, nature and community combined, adventure awaits, unforgettable moments, smiles abound, or come join the fun.
+- Do not make every headline a title-case event description.
+- Vary rhythm across slides: hook, fact, observation, reflection, invitation.
+- Use Jamaican context naturally, never as tourism copy.
+- Do not invent names, identities, history, locations or activities unsupported by notes/analysis.
+- Every slide should add NEW information or emotional movement.
+- The final carousel should make someone think: I learned something; I want to experience this; I should follow Lifestyle Hikers.
+
+VISUAL ART DIRECTION:
+Full-bleed photography; small widely spaced LIFESTYLE HIKERS branding at top-left; large bold white headline in 2-5 short lines; thin white divider; restrained supporting copy; warm-gold @lifestylehikers emphasis on CTA. Photograph remains dominant. Place typography only in genuine negative space and never across faces, bodies, hands or the main subject. Prefer left alignment when safe; use right only when required; never center typography.
+
+IMAGE RULES:
+Each slide must use imageId exactly from this allowed list: ${JSON.stringify(validImageIds)}. Use every supplied photo once unless sequencing genuinely requires a repeated hero image. Never invent an imageId. Use null for cta except the final CTA or a slide that genuinely needs one.
+
+PROJECT: ${input.projectTitle}
+LOCATION: ${input.location}
+NOTES: ${input.notes}
+PHOTO METADATA: ${JSON.stringify(input.photos.map(({ id, originalName, width, height }) => ({ id, originalName, width, height })))}
+PHOTO ANALYSES: ${JSON.stringify(analyses ?? [])}`
+
     const result = await callOpenAI<{ slides: SlideResult[] }>({
       prompt,
       schemaName: 'carousel_slides',
@@ -145,13 +190,17 @@ export class OpenAIService implements AIService {
   }
 
   async regenerateSlide(input: RegenerateSlideInput): Promise<SlideResult> {
-    const prompt = `Regenerate a single Lifestyle Hikers editorial slide. Preserve the exact imageId ${input.photo.id}. Replace only the ${input.target}. Keep the design voice premium, restrained, image-specific, and concise. Use large editorial headline language, supporting copy that stays grounded in the visible photo and notes, left/right placement based on negative space, and no centered typography. Use null for cta when there is no CTA. Current slide: ${JSON.stringify(input.currentSlide)}. Notes: ${input.notes}`
+    const prompt = `Regenerate a single Lifestyle Hikers editorial slide. Preserve the exact imageId ${input.photo.id}. Replace only the ${input.target}. The replacement must preserve the larger carousel narrative rather than becoming a standalone photo description. Keep the voice specific, concise, educational where relevant, and grounded in the visible image and project notes. Headlines should normally be 4-10 words. Body copy should normally be 12-35 words. Avoid generic inspiration and event-summary language. Use left/right placement based on negative space and no centered typography. Use null for cta when there is no CTA. Current slide: ${JSON.stringify(input.currentSlide)}. Notes: ${input.notes}`
     const result = await callOpenAI<SlideResult & { cta: string | null }>({ prompt, schemaName: 'carousel_slide_regeneration', schema: slideItemSchema([input.photo.id]), images: [input.photo] })
     return slideResultSchema.parse({ ...result, cta: result.cta ?? undefined })
   }
 
   async generateCaption(input: { title: string; location: string; notes: string; slides: SlideResult[] }): Promise<CaptionResult> {
-    const prompt = `Create one Instagram caption for a Lifestyle Hikers editorial carousel. Keep it concise, grounded, specific, and free of generic motivational language. Title: ${input.title}. Location: ${input.location}. Notes: ${input.notes}. Slides: ${JSON.stringify(input.slides)}`
+    const isEmancipation = /emancipation/i.test(`${input.title} ${input.notes}`)
+    const eventInstruction = isEmancipation
+      ? `This is an Emancipation Day post. Frame the gathering as a present-day expression of freedom, community and Jamaican identity. If useful, briefly note that August 1 commemorates emancipation in 1834, with full freedom following the apprenticeship period in 1838.`
+      : ''
+    const prompt = `Write the Instagram caption for a Lifestyle Hikers carousel. The goal is meaningful engagement and follows, not a generic event recap. Open with one strong sentence that adds to the carousel rather than repeating slide 1. In 2-4 short paragraphs, connect the occasion, the people, the outdoor experience and what Lifestyle Hikers stands for. Include one natural question that invites comments. End with a clear reason to follow @lifestylehikers for future hikes, Jamaican places, culture and community experiences. Keep it grounded and conversational. Avoid generic motivational language, inflated claims and hashtag stuffing. Provide 5-8 relevant hashtags and useful search keywords. ${eventInstruction} Title: ${input.title}. Location: ${input.location}. Notes: ${input.notes}. Slides: ${JSON.stringify(input.slides)}`
     return captionResultSchema.parse(await callOpenAI<CaptionResult>({ prompt, schemaName: 'carousel_caption', schema: captionSchema }))
   }
 
