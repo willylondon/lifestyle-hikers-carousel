@@ -16,9 +16,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ mode: getAIMode(), analysis })
   } catch (cause) {
     console.error('Photo analysis failed', cause)
-    return NextResponse.json(
-      { error: cause instanceof Error ? cause.message : 'Photo analysis failed.' },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: 'Photo analysis failed.' }, { status: 400 })
   }
 }
