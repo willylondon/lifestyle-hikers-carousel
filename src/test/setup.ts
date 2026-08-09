@@ -22,8 +22,11 @@ if (!URL.revokeObjectURL) {
 }
 
 if (!globalThis.requestAnimationFrame) {
-  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 0)) as typeof requestAnimationFrame
+  globalThis.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+    callback(Date.now())
+    return 1
+  }) as typeof requestAnimationFrame
 }
 if (!globalThis.cancelAnimationFrame) {
-  globalThis.cancelAnimationFrame = ((id: number) => clearTimeout(id)) as typeof cancelAnimationFrame
+  globalThis.cancelAnimationFrame = vi.fn() as typeof cancelAnimationFrame
 }
